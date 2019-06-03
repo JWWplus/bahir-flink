@@ -126,8 +126,6 @@ public class KuduConnector implements AutoCloseable {
                     // we can't do much with it at this point.
                     LOG.error("Previous batch had this exception", e);
                 }
-            } catch (Exception e) {
-                throw e;
             }
         }
 
