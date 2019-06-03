@@ -113,8 +113,23 @@ public class KuduConnector implements AutoCloseable {
 
     public boolean writeRow(KuduRow row) throws Exception {
         final Operation operation = KuduMapper.toOperation(table, writeMode, row);
-
-        Deferred<OperationResponse> response = session.apply(operation);
+        Deferred<OperationResponse> response;
+        while (true) {
+            try {
+                response = session.apply(operation);
+                break;
+            } catch (PleaseThrottleException ex) {
+                try {
+                    ex.getDeferred().join();
+                } catch (Exception e) {
+                    // This is the error response from the buffer that was flushing,
+                    // we can't do much with it at this point.
+                    LOG.error("Previous batch had this exception", e);
+                }
+            } catch (Exception e) {
+                throw e;
+            }
+        }
 
         if (KuduConnector.Consistency.EVENTUAL.equals(consistency)) {
             pendingTransactions.incrementAndGet();
@@ -130,8 +145,8 @@ public class KuduConnector implements AutoCloseable {
     @Override
     public void close() throws Exception {
         while(pendingTransactions.get() > 0) {
-            LOG.info("sleeping {}s by pending transactions", pendingTransactions.get());
-            Thread.sleep(Time.seconds(pendingTransactions.get()).toMilliseconds());
+            LOG.info("sleeping {}ms by pending transactions", pendingTransactions.get());
+            Thread.sleep(Time.milliseconds(pendingTransactions.get()).toMilliseconds());
         }
 
         if (session == null) return;
